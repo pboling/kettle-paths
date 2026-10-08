@@ -1,6 +1,78 @@
 module Kettle
   module Paths
     VERSION: String
-    # See the writing guide of rbs: https://github.com/ruby/rbs#guides
+
+    module Version
+      VERSION: String
+    end
+
+    # Raised for programmer error only; the path operations return nil or false
+    # rather than raising, because a missing or unreadable path is a normal
+    # condition in these tools.
+    class Error < StandardError
+    end
+
+    LOCAL_REMOTE_PREFIXES: Array[String]
+
+    # Expands a path and resolves its longest existing ancestor, re-attaching any
+    # non-existent suffix. Returns nil for a blank path.
+    #
+    # Does NOT make differently spelled paths comparable as strings; use
+    # `same?` / `within?` / `relative` to compare.
+    def self.canonical: (String | Pathname | nil path, ?base: String | nil) -> String?
+
+    # True when both arguments name the same filesystem object, compared by
+    # identity rather than by spelling. False when either argument is blank.
+    def self.same?: (untyped left, untyped right, ?base: String | nil) -> bool
+
+    # Filesystem-identity comparison that tolerates a missing path, falling back
+    # to string equality when identity is unknown.
+    def self.identical?: (untyped left, untyped right) -> bool
+
+    # True when path is root itself or lives inside it, compared by filesystem
+    # identity. Falls back to lexical component comparison when identity cannot
+    # be established, which is what keeps it usable for generated output paths.
+    def self.within?: (untyped path, untyped root, ?base: String | nil) -> bool
+
+    # Path of `path` relative to `root`, computed by ascending `path` and asking
+    # the filesystem at each level whether that ancestor is `root`.
+    #
+    # Returns "." when they name the same directory and nil when root is not an
+    # ancestor. Never returns a lexical parent-directory escape, which is what
+    # `Pathname#relative_path_from` produces for differently spelled paths.
+    def self.relative: (untyped path, untyped root) -> String?
+
+    # `relative`, falling back to the expanded path when root is not an ancestor,
+    # i.e. when there is nothing to strip.
+    def self.relative_from: (untyped path, untyped root) -> String
+
+    # Dir.glob with forward-slash normalization, so patterns assembled from
+    # Windows paths still match.
+    def self.glob: (*untyped parts) -> Array[String]
+
+    # True when a bundler/lockfile "remote:" value denotes a local path rather
+    # than a registry URL.
+    def self.local_path_remote?: (untyped remote) -> bool
+
+    # Path components, normalizing backslashes so Windows and POSIX compare alike.
+    def self.path_parts: (untyped path) -> Array[String]
+
+    # `path_parts`, case-folded on Windows where the filesystem is
+    # case-insensitive.
+    def self.comparable_parts: (untyped path) -> Array[String]
+
+    def self.windows?: () -> bool
+
+    def self.blank?: (untyped value) -> bool
+
+    def self.absolute_pathname?: (String text) -> bool
+
+    # Lexical containment, used only when identity cannot be established because
+    # one side does not exist.
+    def self.lexical_within?: (untyped candidate, untyped boundary) -> bool
+
+    # Ascends from candidate asking the filesystem whether each ancestor is
+    # boundary, re-joining basenames on the way back down.
+    def self.relative_parts: (untyped candidate, untyped boundary) -> String?
   end
 end
