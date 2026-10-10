@@ -280,7 +280,7 @@ module Kettle
       original_base = original_base.empty? ? "." : original_base
       real_base = File.expand_path(original_base)
       results = Dir.glob([pattern, File.join(real_base, File.basename(pattern))].uniq)
-      prefix = real_base == "." ? nil : "#{real_base}/"
+      prefix = (real_base == ".") ? nil : "#{real_base}/"
       results.map do |result|
         if prefix && result.start_with?(prefix)
           "#{original_base.sub(%r{/+\z}, "")}/#{result.delete_prefix(prefix)}"

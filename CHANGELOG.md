@@ -28,15 +28,13 @@ Please file a bug if you notice a violation of semantic versioning.
 
 ### Fixed
 
-- glob on Windows: glob the real path, then re-prefix results with the caller's original spelling of the base. Windows 8.3 short names (RUNNER~1) made results spell a directory differently from TMPDIR-derived expectations; expansion alone could not fix it because expand_path keeps the short-name spelling.
-
 ### Security
 
 ## [0.1.0] - 2026-10-10
 
 - TAG: [v0.1.0][0.1.0t]
-- COVERAGE: 95.92% -- 94/98 lines in 2 files
-- BRANCH COVERAGE: 86.11% -- 31/36 branches in 2 files
+- COVERAGE: 95.19% -- 99/104 lines in 2 files
+- BRANCH COVERAGE: 80.95% -- 34/42 branches in 2 files
 - 90.91% documented
 
 ### Added
