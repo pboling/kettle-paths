@@ -271,22 +271,22 @@ module Kettle
     # @return [Array<String>]
     def glob(*parts)
       # Windows 8.3 short names (RUNNER~1) hide that two spellings are one
-      # file. Glob against the real path so the pattern matches, then re-prefix
-      # each result with the caller's original spelling, so results spell the
-      # base exactly as the caller did — comparisons like contain_exactly
-      # against TMPDIR-derived expectations stay spelling-independent.
+      # file, and File.expand_path does NOT resolve them: the base may stay
+      # short-named while Dir.glob results come back long-named (or vice
+      # versa). Compare both sides in expanded space to compute the relative
+      # path, then re-prefix with the caller's original spelling, so results
+      # spell the base exactly as the caller did and comparisons against
+      # TMPDIR-derived expectations are spelling-independent.
       pattern = File.join(*parts).tr("\\", "/")
       original_base = pattern.split("/")[0..-2].join("/")
       original_base = original_base.empty? ? "." : original_base
-      real_base = File.expand_path(original_base)
-      results = Dir.glob([pattern, File.join(real_base, File.basename(pattern))].uniq)
-      prefix = (real_base == ".") ? nil : "#{real_base}/"
+      expanded_base = File.expand_path(original_base)
+      base_prefix = "#{expanded_base}/"
+      results = Dir.glob([pattern, File.join(expanded_base, File.basename(pattern))].uniq)
       results.map do |result|
-        if prefix && result.start_with?(prefix)
-          "#{original_base.sub(%r{/+\z}, "")}/#{result.delete_prefix(prefix)}"
-        else
-          result
-        end
+        expanded_result = File.expand_path(result)
+        relative = expanded_result.start_with?(base_prefix) ? expanded_result.delete_prefix(base_prefix) : File.basename(result)
+        File.join(original_base, relative)
       end
     end
 
