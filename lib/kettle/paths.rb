@@ -270,14 +270,24 @@ module Kettle
     # @param parts [Array<String>] joined with +File::SEPARATOR+ before globbing
     # @return [Array<String>]
     def glob(*parts)
-      # Windows short names (RUNNER~1) hide that two spellings are one file.
-      # Expanding the base directory first makes results use the same real
-      # spelling as the caller's expectation, so comparisons do not depend on
-      # how TMPDIR happened to be written.
-      base = File.expand_path(File.join(*parts))
-      base_dir = File.dirname(base)
-      base_dir = File.expand_path(base_dir)
-      Dir.glob(File.join(base_dir, File.basename(base)).tr("\\", "/"))
+      # Windows 8.3 short names (RUNNER~1) hide that two spellings are one
+      # file. Glob against the real path so the pattern matches, then re-prefix
+      # each result with the caller's original spelling, so results spell the
+      # base exactly as the caller did — comparisons like contain_exactly
+      # against TMPDIR-derived expectations stay spelling-independent.
+      pattern = File.join(*parts).tr("\\", "/")
+      original_base = pattern.split("/")[0..-2].join("/")
+      original_base = original_base.empty? ? "." : original_base
+      real_base = File.expand_path(original_base)
+      results = Dir.glob([pattern, File.join(real_base, File.basename(pattern))].uniq)
+      prefix = real_base == "." ? nil : "#{real_base}/"
+      results.map do |result|
+        if prefix && result.start_with?(prefix)
+          "#{original_base.sub(%r{/+\z}, "")}/#{result.delete_prefix(prefix)}"
+        else
+          result
+        end
+      end
     end
 
     # True when a bundler/lockfile "remote:" value denotes a local path rather

@@ -28,6 +28,8 @@ Please file a bug if you notice a violation of semantic versioning.
 
 ### Fixed
 
+- glob on Windows: glob the real path, then re-prefix results with the caller's original spelling of the base. Windows 8.3 short names (RUNNER~1) made results spell a directory differently from TMPDIR-derived expectations; expansion alone could not fix it because expand_path keeps the short-name spelling.
+
 ### Security
 
 ## [0.1.0] - 2026-10-10
