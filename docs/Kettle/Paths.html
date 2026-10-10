@@ -1,0 +1,1947 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>
+  Module: Kettle::Paths
+  
+    &mdash; Documentation by YARD 0.9.45
+  
+</title>
+
+  <link rel="stylesheet" href="../css/style.css" type="text/css">
+
+  <link rel="stylesheet" href="../css/common.css" type="text/css">
+
+<script type="text/javascript">
+  pathId = "Kettle::Paths";
+  relpath = '../';
+</script>
+
+
+  <script type="text/javascript" charset="utf-8" src="../js/jquery.js"></script>
+
+  <script type="text/javascript" charset="utf-8" src="../js/app.js"></script>
+
+
+  </head>
+  <body>
+    <div id="main_progress" aria-hidden="true"></div>
+
+    <div class="nav_wrap">
+      <iframe id="nav" src="../class_list.html?1"></iframe>
+      <div id="resizer"></div>
+    </div>
+
+    <div id="main" tabindex="-1">
+      <div id="header">
+        <div id="menu">
+  
+    <a href="../_index.html">Index (P)</a> &raquo;
+    <span class='title'><span class='object_link'><a href="../Kettle.html" title="Kettle (module)">Kettle</a></span></span>
+     &raquo; 
+    <span class="title">Paths</span>
+  
+</div>
+
+        <div id="search">
+  
+    <a class="full_list_link" id="class_list_link"
+        href="../class_list.html">
+
+        <svg width="24" height="24">
+          <rect x="0" y="4" width="24" height="4" rx="1" ry="1"></rect>
+          <rect x="0" y="12" width="24" height="4" rx="1" ry="1"></rect>
+          <rect x="0" y="20" width="24" height="4" rx="1" ry="1"></rect>
+        </svg>
+    </a>
+  
+</div>
+        <div class="clear"></div>
+      </div>
+
+      <div id="content"><h1>Module: Kettle::Paths
+  
+  
+  
+</h1>
+<div class="box_info">
+  
+
+  
+  
+  
+  
+  
+
+  
+
+  
+  <dl>
+    <dt>Defined in:</dt>
+    <dd>lib/kettle/paths.rb<span class="defines">,<br>
+  lib/kettle/paths/version.rb</span>
+
+</dd>
+  </dl>
+  
+</div>
+
+<h2>Overview</h2><div class="docstring">
+  <div class="discussion">
+    <p>Filesystem path comparison by identity rather than by spelling.</p>
+
+<p>== Why string comparison of paths is not safe</p>
+
+<p>A path string is a <em>name</em>, not an identity. One directory can have several<br />
+valid names, and two names can reach the same code from different APIs<br />
+within one process. Two cases bite these tools on every platform:</p>
+
+<ol>
+  <li>
+    <p>A symlinked ancestor. On Fedora Silverblue/Aurora +/home/x+ is a symlink<br />
+to +/var/home/x+, so +Dir.pwd+ can report one form while a path built<br />
+from an ENV var, a stored fixture, a TMPDIR, or<br />
++git rev-parse –show-toplevel+ reports the other.</p>
+  </li>
+  <li>
+    <p>Windows 8.3 short names. Measured on a GitHub Actions windows-latest<br />
+runner:</p>
+
+    <p>Dir.pwd         =&gt; “C:/Users/RUNNER~1/AppData/Local/Temp/turbo-tests2-…”<br />
+  ENV[“TEMP”]     =&gt; “C:\Users\RUNNER~1\AppData\Local\Temp”<br />
+  Dir.glob result =&gt; “C:/Users/runneradmin/AppData/Local/Temp/turbo-tests2-…”</p>
+
+    <p>+RUNNER~1+ is the 8.3 short name and +runneradmin+ the long name of the<br />
+same directory. +Dir.pwd+ and the environment report the short form while<br />
++Dir.glob+ — which RSpec uses to expand +–pattern+ — reports the long<br />
+form. Both are correct and they are never equal as strings.</p>
+  </li>
+</ol>
+
+<p>The concrete damage: +Pathname#relative_path_from+ is purely lexical, so<br />
+with differing spellings it walks all the way up and back down and returns a<br />
+plausible-looking escape such as<br />
++”../../../../../runneradmin/AppData/Local/Temp/…”+. It does not raise, so<br />
+a +rescue ArgumentError+ cannot catch it. Those escapes then reach<br />
++git add+, which fails with “is outside repository at”, or a test runner<br />
+that silently selects the wrong files.</p>
+
+<p>== The approach that works</p>
+
+<p>+File.identical?+ asks the filesystem whether two names denote one object —<br />
+by inode on Unix and by file index on Windows. It is spelling-agnostic,<br />
+which is exactly the property needed. So containment and relativization here<br />
+ascend the candidate path asking the filesystem “is this the root?”, and<br />
+re-join basenames on the way back down.</p>
+
+<p>Lexical component comparison is kept only as a fallback for paths that do<br />
+not exist yet, which have no identity to ask about. That is what keeps the<br />
+comparison useful for generated output paths.</p>
+
+<p>== Approaches that do NOT work, and why</p>
+
+<p>All four were tried against the real failing environments and all failed;<br />
+recorded so the sequence is not repeated.</p>
+
+<ol>
+  <li>
+    <p>String prefix (+expanded.start_with?(“#{root}/”)+): never matches when<br />
+the two spellings differ, so absolute temp paths leak through to<br />
+consumers that then stat them. It also wrongly reports “project-other”<br />
+as inside “project”.</p>
+  </li>
+  <li>
+    <p>Canonicalize with +File.realpath+, then compare: WRONG PREMISE —<br />
++File.realpath+ does NOT expand Windows 8.3 short names. Measured on the<br />
+runner, realpath of the short path returns the short path unchanged, so<br />
+canonicalization cannot reconcile the two spellings at all. It also<br />
+resolves symlinks, which adds a second failure mode: root and file may<br />
+legitimately traverse different symlink chains to one directory, and<br />
+canonicalizing only one side makes them diverge.</p>
+  </li>
+  <li>
+    <p>Component-wise comparison of canonicalized parts: same false premise as<br />
+#2, so +RUNNER~1+ never equals +runneradmin+ under any case folding. It<br />
+also relied on +File::ALT_SEPARATOR+, which measured as +””+ (empty<br />
+string, not nil) on that runner, making the separator-normalizing +tr+ a<br />
+silent no-op. Do not trust ALT_SEPARATOR to be present.</p>
+  </li>
+  <li>
+    <p>+Pathname#relative_path_from+: purely lexical, as described above.</p>
+  </li>
+</ol>
+
+<p>== How the Windows case was finally diagnosed</p>
+
+<p>It only reproduced on the Windows CI runner, and the runner’s output was<br />
+swallowed: the discovery specs invoke a subprocess whose stderr surfaces<br />
+only when a status check fails, and the assertion that failed was a JSON<br />
+comparison. Four blind fixes failed in a row. What resolved it was a<br />
+temporary, Windows-guarded spec (+if: Gem.win_platform?+) that deliberately<br />
+failed with the diagnostic JSON embedded in the expectation message, so the<br />
+runner’s real path forms printed into the CI log. Guarding it kept the other<br />
+checks green while one job reported the data; that spec was then deleted and<br />
+its findings became this documentation plus the specs in this gem.</p>
+
+<p>Lesson: when a bug is environment-specific and the environment is not<br />
+available locally, spend the iteration on instrumenting the real environment<br />
+rather than on another hypothesized fix.</p>
+
+<p>== Dependency-free by design</p>
+
+<p>No runtime dependencies and MIT licensed, so it can be shared by both MIT<br />
+and AGPL tooling without license friction. Keep it that way.</p>
+
+<p>The Ruby floor is 2.4.0 to match its consumers (kettle-dev, kettle-family and<br />
+turbo_tests2 all declare “&gt;= 2.4.0”), so this file avoids +filter_map+<br />
+(2.7+), multi-argument +String#start_with?+ (2.5+), +Hash#to_h+ with a block<br />
+(2.6+) and endless method definitions.</p>
+
+
+  </div>
+</div>
+<div class="tags">
+  
+
+</div><h2>Defined Under Namespace</h2>
+<p class="children">
+  
+    
+      <strong class="modules">Modules:</strong> <span class='object_link'><a href="Paths/Version.html" title="Kettle::Paths::Version (module)">Version</a></span>
+    
+  
+    
+      <strong class="classes">Classes:</strong> <span class='object_link'><a href="Paths/Error.html" title="Kettle::Paths::Error (class)">Error</a></span>
+    
+  
+</p>
+
+  
+    <h2>
+      Constant Summary
+      <small><a href="#" class="constants_summary_toggle">collapse</a></small>
+    </h2>
+
+    <dl class="constants">
+      
+        <dt id="LOCAL_REMOTE_PREFIXES-constant" class="">LOCAL_REMOTE_PREFIXES =
+          
+        </dt>
+        <dd><pre class="code"><span class='lbracket'>[</span><span class='tstring'><span class='tstring_beg'>&quot;</span><span class='tstring_content'>/</span><span class='tstring_end'>&quot;</span></span><span class='comma'>,</span> <span class='tstring'><span class='tstring_beg'>&quot;</span><span class='tstring_content'>./</span><span class='tstring_end'>&quot;</span></span><span class='comma'>,</span> <span class='tstring'><span class='tstring_beg'>&quot;</span><span class='tstring_content'>../</span><span class='tstring_end'>&quot;</span></span><span class='comma'>,</span> <span class='tstring'><span class='tstring_beg'>&quot;</span><span class='tstring_content'>.\\</span><span class='tstring_end'>&quot;</span></span><span class='comma'>,</span> <span class='tstring'><span class='tstring_beg'>&quot;</span><span class='tstring_content'>..\\</span><span class='tstring_end'>&quot;</span></span><span class='rbracket'>]</span><span class='period'>.</span><span class='id identifier rubyid_freeze'>freeze</span></pre></dd>
+      
+        <dt id="VERSION-constant" class="">VERSION =
+          <div class="docstring">
+  <div class="discussion">
+    <p>Current gem version exposed at the traditional constant location.</p>
+
+
+  </div>
+</div>
+<div class="tags">
+  
+
+</div>
+        </dt>
+        <dd><pre class="code"><span class='const'><span class='object_link'><a href="Paths/Version.html" title="Kettle::Paths::Version (module)">Version</a></span></span><span class='op'>::</span><span class='const'><span class='object_link'><a href="Paths/Version.html#VERSION-constant" title="Kettle::Paths::Version::VERSION (constant)">VERSION</a></span></span></pre></dd>
+      
+    </dl>
+  
+
+
+
+
+
+
+
+  
+    <h2>
+      Class Method Summary
+      <small><a href="#" class="summary_toggle">collapse</a></small>
+    </h2>
+
+    <ul class="summary">
+      
+        <li class="public ">
+  <span class="summary_signature">
+    
+      <a href="#absolute_pathname%3F-class_method" title="absolute_pathname? (class method)">.<strong>absolute_pathname?</strong>(text)  &#x21d2; Boolean </a>
+    
+
+    
+  </span>
+  
+  
+  
+  
+  
+  
+  <span class="private note title">private</span>
+
+  
+    <span class="summary_desc"><div class='inline'>
+</div></span>
+  
+</li>
+
+      
+        <li class="public ">
+  <span class="summary_signature">
+    
+      <a href="#blank%3F-class_method" title="blank? (class method)">.<strong>blank?</strong>(value)  &#x21d2; Boolean </a>
+    
+
+    
+  </span>
+  
+  
+  
+  
+  
+  
+  <span class="private note title">private</span>
+
+  
+    <span class="summary_desc"><div class='inline'>
+</div></span>
+  
+</li>
+
+      
+        <li class="public ">
+  <span class="summary_signature">
+    
+      <a href="#canonical-class_method" title="canonical (class method)">.<strong>canonical</strong>(path, base: nil)  &#x21d2; String<sup>?</sup> </a>
+    
+
+    
+  </span>
+  
+  
+  
+  
+  
+  
+  
+
+  
+    <span class="summary_desc"><div class='inline'><p>Expands +path+ and resolves its longest existing ancestor, re-attaching any non-existent suffix.</p>
+</div></span>
+  
+</li>
+
+      
+        <li class="public ">
+  <span class="summary_signature">
+    
+      <a href="#comparable_parts-class_method" title="comparable_parts (class method)">.<strong>comparable_parts</strong>(path)  &#x21d2; Array&lt;String&gt; </a>
+    
+
+    
+  </span>
+  
+  
+  
+  
+  
+  
+  
+
+  
+    <span class="summary_desc"><div class='inline'><p>{path_parts}, case-folded on Windows where the filesystem is case-insensitive.</p>
+</div></span>
+  
+</li>
+
+      
+        <li class="public ">
+  <span class="summary_signature">
+    
+      <a href="#glob-class_method" title="glob (class method)">.<strong>glob</strong>(*parts)  &#x21d2; Array&lt;String&gt; </a>
+    
+
+    
+  </span>
+  
+  
+  
+  
+  
+  
+  
+
+  
+    <span class="summary_desc"><div class='inline'><p>Dir.glob with forward-slash normalization, so patterns assembled from Windows paths still match.</p>
+</div></span>
+  
+</li>
+
+      
+        <li class="public ">
+  <span class="summary_signature">
+    
+      <a href="#identical%3F-class_method" title="identical? (class method)">.<strong>identical?</strong>(left, right)  &#x21d2; Boolean </a>
+    
+
+    
+  </span>
+  
+  
+  
+  
+  
+  
+  
+
+  
+    <span class="summary_desc"><div class='inline'><p>Filesystem-identity comparison that tolerates a missing path.</p>
+</div></span>
+  
+</li>
+
+      
+        <li class="public ">
+  <span class="summary_signature">
+    
+      <a href="#lexical_within%3F-class_method" title="lexical_within? (class method)">.<strong>lexical_within?</strong>(candidate, boundary)  &#x21d2; Boolean </a>
+    
+
+    
+  </span>
+  
+  
+  
+  
+  
+  
+  <span class="private note title">private</span>
+
+  
+    <span class="summary_desc"><div class='inline'><p>Lexical containment, used only when identity cannot be established because one side does not exist.</p>
+</div></span>
+  
+</li>
+
+      
+        <li class="public ">
+  <span class="summary_signature">
+    
+      <a href="#local_path_remote%3F-class_method" title="local_path_remote? (class method)">.<strong>local_path_remote?</strong>(remote)  &#x21d2; Boolean </a>
+    
+
+    
+  </span>
+  
+  
+  
+  
+  
+  
+  
+
+  
+    <span class="summary_desc"><div class='inline'><p>True when a bundler/lockfile “remote:” value denotes a local path rather than a registry URL.</p>
+</div></span>
+  
+</li>
+
+      
+        <li class="public ">
+  <span class="summary_signature">
+    
+      <a href="#path_parts-class_method" title="path_parts (class method)">.<strong>path_parts</strong>(path)  &#x21d2; Array&lt;String&gt; </a>
+    
+
+    
+  </span>
+  
+  
+  
+  
+  
+  
+  
+
+  
+    <span class="summary_desc"><div class='inline'><p>Splits a path into its components, normalizing backslashes so Windows and POSIX paths compare alike.</p>
+</div></span>
+  
+</li>
+
+      
+        <li class="public ">
+  <span class="summary_signature">
+    
+      <a href="#relative-class_method" title="relative (class method)">.<strong>relative</strong>(path, root)  &#x21d2; String<sup>?</sup> </a>
+    
+
+    
+  </span>
+  
+  
+  
+  
+  
+  
+  
+
+  
+    <span class="summary_desc"><div class='inline'><p>The path of +path+ relative to +root+, computed by ascending +path+ and asking the filesystem at each level whether that ancestor is +root+.</p>
+</div></span>
+  
+</li>
+
+      
+        <li class="public ">
+  <span class="summary_signature">
+    
+      <a href="#relative_from-class_method" title="relative_from (class method)">.<strong>relative_from</strong>(path, root)  &#x21d2; String </a>
+    
+
+    
+  </span>
+  
+  
+  
+  
+  
+  
+  
+
+  
+    <span class="summary_desc"><div class='inline'><p>{relative}, falling back to the expanded +path+ when +root+ is not an ancestor, i.e.</p>
+</div></span>
+  
+</li>
+
+      
+        <li class="public ">
+  <span class="summary_signature">
+    
+      <a href="#relative_parts-class_method" title="relative_parts (class method)">.<strong>relative_parts</strong>(candidate, boundary)  &#x21d2; String<sup>?</sup> </a>
+    
+
+    
+  </span>
+  
+  
+  
+  
+  
+  
+  <span class="private note title">private</span>
+
+  
+    <span class="summary_desc"><div class='inline'><p>Ascend from +candidate+ asking the filesystem whether each ancestor is +boundary+, re-joining basenames on the way back down.</p>
+</div></span>
+  
+</li>
+
+      
+        <li class="public ">
+  <span class="summary_signature">
+    
+      <a href="#same%3F-class_method" title="same? (class method)">.<strong>same?</strong>(left, right, base: nil)  &#x21d2; Boolean </a>
+    
+
+    
+  </span>
+  
+  
+  
+  
+  
+  
+  
+
+  
+    <span class="summary_desc"><div class='inline'><p>True when +left+ and +right+ name the same filesystem object, compared by identity rather than by spelling.</p>
+</div></span>
+  
+</li>
+
+      
+        <li class="public ">
+  <span class="summary_signature">
+    
+      <a href="#windows%3F-class_method" title="windows? (class method)">.<strong>windows?</strong>  &#x21d2; Boolean </a>
+    
+
+    
+  </span>
+  
+  
+  
+  
+  
+  
+  <span class="private note title">private</span>
+
+  
+    <span class="summary_desc"><div class='inline'>
+</div></span>
+  
+</li>
+
+      
+        <li class="public ">
+  <span class="summary_signature">
+    
+      <a href="#within%3F-class_method" title="within? (class method)">.<strong>within?</strong>(path, root, base: nil)  &#x21d2; Boolean </a>
+    
+
+    
+  </span>
+  
+  
+  
+  
+  
+  
+  
+
+  
+    <span class="summary_desc"><div class='inline'><p>True when +path+ is +root+ itself or lives inside it, compared by filesystem identity.</p>
+</div></span>
+  
+</li>
+
+      
+    </ul>
+    
+  
+
+
+
+  <div id="class_method_details" class="method_details_list">
+    <h2>Class Method Details</h2>
+
+    
+      <div class="method_details first">
+  <h3 class="signature first" id="absolute_pathname?-class_method">
+  
+    .<strong>absolute_pathname?</strong>(text)  &#x21d2; <tt>Boolean</tt> 
+  
+
+  
+
+  
+</h3><div class="docstring">
+  <div class="discussion">
+    <p class="note private">
+  <strong>This method is part of a private API.</strong>
+  You should avoid using this method if possible, as it may be removed or be changed in the future.
+</p>
+
+
+
+  </div>
+</div>
+<div class="tags">
+  
+<p class="tag_title">Returns:</p>
+<ul class="return">
+  
+    <li>
+      
+      
+        <span class='type'>(<tt>Boolean</tt>)</span>
+      
+      
+      
+    </li>
+  
+</ul>
+
+</div><table class="source_code">
+  <tr>
+    <td>
+      <pre class="lines">
+
+
+323
+324
+325
+326
+327</pre>
+    </td>
+    <td>
+      <pre class="code"><span class="info file"># File 'lib/kettle/paths.rb', line 323</span>
+
+<span class='kw'>def</span> <span class='id identifier rubyid_absolute_pathname?'>absolute_pathname?</span><span class='lparen'>(</span><span class='id identifier rubyid_text'>text</span><span class='rparen'>)</span>
+  <span class='const'>Pathname</span><span class='period'>.</span><span class='id identifier rubyid_new'>new</span><span class='lparen'>(</span><span class='id identifier rubyid_text'>text</span><span class='rparen'>)</span><span class='period'>.</span><span class='id identifier rubyid_absolute?'>absolute?</span>
+<span class='kw'>rescue</span>
+  <span class='kw'>false</span>
+<span class='kw'>end</span></pre>
+    </td>
+  </tr>
+</table>
+</div>
+    
+      <div class="method_details ">
+  <h3 class="signature " id="blank?-class_method">
+  
+    .<strong>blank?</strong>(value)  &#x21d2; <tt>Boolean</tt> 
+  
+
+  
+
+  
+</h3><div class="docstring">
+  <div class="discussion">
+    <p class="note private">
+  <strong>This method is part of a private API.</strong>
+  You should avoid using this method if possible, as it may be removed or be changed in the future.
+</p>
+
+
+
+  </div>
+</div>
+<div class="tags">
+  
+<p class="tag_title">Returns:</p>
+<ul class="return">
+  
+    <li>
+      
+      
+        <span class='type'>(<tt>Boolean</tt>)</span>
+      
+      
+      
+    </li>
+  
+</ul>
+
+</div><table class="source_code">
+  <tr>
+    <td>
+      <pre class="lines">
+
+
+318
+319
+320</pre>
+    </td>
+    <td>
+      <pre class="code"><span class="info file"># File 'lib/kettle/paths.rb', line 318</span>
+
+<span class='kw'>def</span> <span class='id identifier rubyid_blank?'>blank?</span><span class='lparen'>(</span><span class='id identifier rubyid_value'>value</span><span class='rparen'>)</span>
+  <span class='id identifier rubyid_value'>value</span><span class='period'>.</span><span class='id identifier rubyid_nil?'>nil?</span> <span class='op'>||</span> <span class='id identifier rubyid_value'>value</span><span class='period'>.</span><span class='id identifier rubyid_to_s'>to_s</span><span class='period'>.</span><span class='id identifier rubyid_empty?'>empty?</span>
+<span class='kw'>end</span></pre>
+    </td>
+  </tr>
+</table>
+</div>
+    
+      <div class="method_details ">
+  <h3 class="signature " id="canonical-class_method">
+  
+    .<strong>canonical</strong>(path, base: nil)  &#x21d2; <tt>String</tt><sup>?</sup> 
+  
+
+  
+
+  
+</h3><div class="docstring">
+  <div class="discussion">
+    <p>Expands +path+ and resolves its longest existing ancestor, re-attaching<br />
+any non-existent suffix. Keeps comparisons useful for generated paths that<br />
+do not exist yet, which is common in templating and release tooling.</p>
+
+<p>NOTE: this does NOT make differently spelled paths comparable as strings —<br />
+see the class documentation on +File.realpath+ and 8.3 short names. Use<br />
+<span class='object_link'><a href="#same%3F-class_method" title="Kettle::Paths.same? (method)">same?</a></span>, <span class='object_link'><a href="#within%3F-class_method" title="Kettle::Paths.within? (method)">within?</a></span> or {relative} to compare, never string equality on the<br />
+result of this method.</p>
+
+
+  </div>
+</div>
+<div class="tags">
+  <p class="tag_title">Parameters:</p>
+<ul class="param">
+  
+    <li>
+      
+        <span class='name'>path</span>
+      
+      
+        <span class='type'>(<tt>String</tt>, <tt>Pathname</tt>, <tt>nil</tt>)</span>
+      
+      
+      
+    </li>
+  
+    <li>
+      
+        <span class='name'>base</span>
+      
+      
+        <span class='type'>(<tt>String</tt>, <tt>nil</tt>)</span>
+      
+      
+        <em class="default">(defaults to: <tt>nil</tt>)</em>
+      
+      
+        &mdash;
+        <div class='inline'><p>directory to expand a relative +path+ against</p>
+</div>
+      
+    </li>
+  
+</ul>
+
+<p class="tag_title">Returns:</p>
+<ul class="return">
+  
+    <li>
+      
+      
+        <span class='type'>(<tt>String</tt>, <tt>nil</tt>)</span>
+      
+      
+      
+        &mdash;
+        <div class='inline'><p>the expanded path, or the plain expansion when the<br />
+real path cannot be resolved; nil when +path+ is blank</p>
+</div>
+      
+    </li>
+  
+</ul>
+
+</div><table class="source_code">
+  <tr>
+    <td>
+      <pre class="lines">
+
+
+127
+128
+129
+130
+131
+132
+133
+134
+135
+136
+137
+138
+139
+140
+141
+142
+143
+144</pre>
+    </td>
+    <td>
+      <pre class="code"><span class="info file"># File 'lib/kettle/paths.rb', line 127</span>
+
+<span class='kw'>def</span> <span class='id identifier rubyid_canonical'>canonical</span><span class='lparen'>(</span><span class='id identifier rubyid_path'>path</span><span class='comma'>,</span> <span class='label'>base:</span> <span class='kw'>nil</span><span class='rparen'>)</span>
+  <span class='kw'>return</span> <span class='kw'>nil</span> <span class='kw'>if</span> <span class='id identifier rubyid_blank?'>blank?</span><span class='lparen'>(</span><span class='id identifier rubyid_path'>path</span><span class='rparen'>)</span>
+
+  <span class='id identifier rubyid_expanded'>expanded</span> <span class='op'>=</span> <span class='const'>File</span><span class='period'>.</span><span class='id identifier rubyid_expand_path'>expand_path</span><span class='lparen'>(</span><span class='id identifier rubyid_path'>path</span><span class='period'>.</span><span class='id identifier rubyid_to_s'>to_s</span><span class='comma'>,</span> <span class='id identifier rubyid_base'>base</span><span class='rparen'>)</span>
+  <span class='id identifier rubyid_existing'>existing</span> <span class='op'>=</span> <span class='id identifier rubyid_expanded'>expanded</span>
+  <span class='id identifier rubyid_suffix'>suffix</span> <span class='op'>=</span> <span class='lbracket'>[</span><span class='rbracket'>]</span>
+  <span class='kw'>until</span> <span class='const'>File</span><span class='period'>.</span><span class='id identifier rubyid_exist?'>exist?</span><span class='lparen'>(</span><span class='id identifier rubyid_existing'>existing</span><span class='rparen'>)</span> <span class='op'>||</span> <span class='const'>File</span><span class='period'>.</span><span class='id identifier rubyid_symlink?'>symlink?</span><span class='lparen'>(</span><span class='id identifier rubyid_existing'>existing</span><span class='rparen'>)</span>
+    <span class='id identifier rubyid_parent'>parent</span> <span class='op'>=</span> <span class='const'>File</span><span class='period'>.</span><span class='id identifier rubyid_dirname'>dirname</span><span class='lparen'>(</span><span class='id identifier rubyid_existing'>existing</span><span class='rparen'>)</span>
+    <span class='kw'>return</span> <span class='id identifier rubyid_expanded'>expanded</span> <span class='kw'>if</span> <span class='id identifier rubyid_parent'>parent</span> <span class='op'>==</span> <span class='id identifier rubyid_existing'>existing</span>
+
+    <span class='id identifier rubyid_suffix'>suffix</span><span class='period'>.</span><span class='id identifier rubyid_unshift'>unshift</span><span class='lparen'>(</span><span class='const'>File</span><span class='period'>.</span><span class='id identifier rubyid_basename'>basename</span><span class='lparen'>(</span><span class='id identifier rubyid_existing'>existing</span><span class='rparen'>)</span><span class='rparen'>)</span>
+    <span class='id identifier rubyid_existing'>existing</span> <span class='op'>=</span> <span class='id identifier rubyid_parent'>parent</span>
+  <span class='kw'>end</span>
+
+  <span class='id identifier rubyid_suffix'>suffix</span><span class='period'>.</span><span class='id identifier rubyid_reduce'>reduce</span><span class='lparen'>(</span><span class='const'>File</span><span class='period'>.</span><span class='id identifier rubyid_realpath'>realpath</span><span class='lparen'>(</span><span class='id identifier rubyid_existing'>existing</span><span class='rparen'>)</span><span class='rparen'>)</span> <span class='lbrace'>{</span> <span class='op'>|</span><span class='id identifier rubyid_resolved'>resolved</span><span class='comma'>,</span> <span class='id identifier rubyid_component'>component</span><span class='op'>|</span> <span class='const'>File</span><span class='period'>.</span><span class='id identifier rubyid_join'>join</span><span class='lparen'>(</span><span class='id identifier rubyid_resolved'>resolved</span><span class='comma'>,</span> <span class='id identifier rubyid_component'>component</span><span class='rparen'>)</span> <span class='rbrace'>}</span>
+<span class='kw'>rescue</span> <span class='const'>Errno</span><span class='op'>::</span><span class='const'>EACCES</span><span class='comma'>,</span> <span class='const'>Errno</span><span class='op'>::</span><span class='const'>ENOENT</span>
+  <span class='id identifier rubyid_expanded'>expanded</span>
+<span class='kw'>end</span></pre>
+    </td>
+  </tr>
+</table>
+</div>
+    
+      <div class="method_details ">
+  <h3 class="signature " id="comparable_parts-class_method">
+  
+    .<strong>comparable_parts</strong>(path)  &#x21d2; <tt>Array&lt;String&gt;</tt> 
+  
+
+  
+
+  
+</h3><div class="docstring">
+  <div class="discussion">
+    <p>{path_parts}, case-folded on Windows where the filesystem is<br />
+case-insensitive.</p>
+
+
+  </div>
+</div>
+<div class="tags">
+  <p class="tag_title">Parameters:</p>
+<ul class="param">
+  
+    <li>
+      
+        <span class='name'>path</span>
+      
+      
+        <span class='type'>(<tt>String</tt>, <tt>Pathname</tt>, <tt>nil</tt>)</span>
+      
+      
+      
+    </li>
+  
+</ul>
+
+<p class="tag_title">Returns:</p>
+<ul class="return">
+  
+    <li>
+      
+      
+        <span class='type'>(<tt>Array&lt;String&gt;</tt>)</span>
+      
+      
+      
+    </li>
+  
+</ul>
+
+</div><table class="source_code">
+  <tr>
+    <td>
+      <pre class="lines">
+
+
+307
+308
+309
+310</pre>
+    </td>
+    <td>
+      <pre class="code"><span class="info file"># File 'lib/kettle/paths.rb', line 307</span>
+
+<span class='kw'>def</span> <span class='id identifier rubyid_comparable_parts'>comparable_parts</span><span class='lparen'>(</span><span class='id identifier rubyid_path'>path</span><span class='rparen'>)</span>
+  <span class='id identifier rubyid_parts'>parts</span> <span class='op'>=</span> <span class='id identifier rubyid_path_parts'>path_parts</span><span class='lparen'>(</span><span class='id identifier rubyid_path'>path</span><span class='rparen'>)</span>
+  <span class='id identifier rubyid_windows?'>windows?</span> <span class='op'>?</span> <span class='id identifier rubyid_parts'>parts</span><span class='period'>.</span><span class='id identifier rubyid_map'>map</span><span class='lparen'>(</span><span class='op'>&amp;</span><span class='symbol'>:downcase</span><span class='rparen'>)</span> <span class='op'>:</span> <span class='id identifier rubyid_parts'>parts</span>
+<span class='kw'>end</span></pre>
+    </td>
+  </tr>
+</table>
+</div>
+    
+      <div class="method_details ">
+  <h3 class="signature " id="glob-class_method">
+  
+    .<strong>glob</strong>(*parts)  &#x21d2; <tt>Array&lt;String&gt;</tt> 
+  
+
+  
+
+  
+</h3><div class="docstring">
+  <div class="discussion">
+    <p>Dir.glob with forward-slash normalization, so patterns assembled from<br />
+Windows paths still match.</p>
+
+
+  </div>
+</div>
+<div class="tags">
+  <p class="tag_title">Parameters:</p>
+<ul class="param">
+  
+    <li>
+      
+        <span class='name'>parts</span>
+      
+      
+        <span class='type'>(<tt>Array&lt;String&gt;</tt>)</span>
+      
+      
+      
+        &mdash;
+        <div class='inline'><p>joined with +File::SEPARATOR+ before globbing</p>
+</div>
+      
+    </li>
+  
+</ul>
+
+<p class="tag_title">Returns:</p>
+<ul class="return">
+  
+    <li>
+      
+      
+        <span class='type'>(<tt>Array&lt;String&gt;</tt>)</span>
+      
+      
+      
+    </li>
+  
+</ul>
+
+</div><table class="source_code">
+  <tr>
+    <td>
+      <pre class="lines">
+
+
+272
+273
+274</pre>
+    </td>
+    <td>
+      <pre class="code"><span class="info file"># File 'lib/kettle/paths.rb', line 272</span>
+
+<span class='kw'>def</span> <span class='id identifier rubyid_glob'>glob</span><span class='lparen'>(</span><span class='op'>*</span><span class='id identifier rubyid_parts'>parts</span><span class='rparen'>)</span>
+  <span class='const'>Dir</span><span class='period'>.</span><span class='id identifier rubyid_glob'>glob</span><span class='lparen'>(</span><span class='const'>File</span><span class='period'>.</span><span class='id identifier rubyid_join'>join</span><span class='lparen'>(</span><span class='op'>*</span><span class='id identifier rubyid_parts'>parts</span><span class='rparen'>)</span><span class='period'>.</span><span class='id identifier rubyid_tr'>tr</span><span class='lparen'>(</span><span class='tstring'><span class='tstring_beg'>&quot;</span><span class='tstring_content'>\\</span><span class='tstring_end'>&quot;</span></span><span class='comma'>,</span> <span class='tstring'><span class='tstring_beg'>&quot;</span><span class='tstring_content'>/</span><span class='tstring_end'>&quot;</span></span><span class='rparen'>)</span><span class='rparen'>)</span>
+<span class='kw'>end</span></pre>
+    </td>
+  </tr>
+</table>
+</div>
+    
+      <div class="method_details ">
+  <h3 class="signature " id="identical?-class_method">
+  
+    .<strong>identical?</strong>(left, right)  &#x21d2; <tt>Boolean</tt> 
+  
+
+  
+
+  
+</h3><div class="docstring">
+  <div class="discussion">
+    <p>Filesystem-identity comparison that tolerates a missing path.</p>
+
+<p>+File.identical?+ is not consistent across Rubies here: some raise<br />
++SystemCallError+ for a path that does not exist, while others (measured on<br />
+Ruby 4.0.7) return false. Both are handled, because callers pass paths that<br />
+may not exist yet — generated output, a lockfile entry for a file about to<br />
+be written.</p>
+
+<p>The fallback is string equality, which is the correct answer when neither<br />
+side is a symlink or an 8.3 short name. Rescues +SystemCallError+ rather<br />
+than +Errno::ENOENT+ alone, because ENOTDIR, ELOOP and EACCES all mean<br />
+“identity unknown” and the string fallback is the safest answer in each<br />
+case.</p>
+
+
+  </div>
+</div>
+<div class="tags">
+  <p class="tag_title">Parameters:</p>
+<ul class="param">
+  
+    <li>
+      
+        <span class='name'>left</span>
+      
+      
+        <span class='type'>(<tt>String</tt>, <tt>Pathname</tt>, <tt>nil</tt>)</span>
+      
+      
+      
+    </li>
+  
+    <li>
+      
+        <span class='name'>right</span>
+      
+      
+        <span class='type'>(<tt>String</tt>, <tt>Pathname</tt>, <tt>nil</tt>)</span>
+      
+      
+      
+    </li>
+  
+</ul>
+
+<p class="tag_title">Returns:</p>
+<ul class="return">
+  
+    <li>
+      
+      
+        <span class='type'>(<tt>Boolean</tt>)</span>
+      
+      
+      
+    </li>
+  
+</ul>
+
+</div><table class="source_code">
+  <tr>
+    <td>
+      <pre class="lines">
+
+
+183
+184
+185
+186
+187
+188
+189
+190
+191</pre>
+    </td>
+    <td>
+      <pre class="code"><span class="info file"># File 'lib/kettle/paths.rb', line 183</span>
+
+<span class='kw'>def</span> <span class='id identifier rubyid_identical?'>identical?</span><span class='lparen'>(</span><span class='id identifier rubyid_left'>left</span><span class='comma'>,</span> <span class='id identifier rubyid_right'>right</span><span class='rparen'>)</span>
+  <span class='kw'>return</span> <span class='kw'>false</span> <span class='kw'>if</span> <span class='id identifier rubyid_blank?'>blank?</span><span class='lparen'>(</span><span class='id identifier rubyid_left'>left</span><span class='rparen'>)</span> <span class='op'>||</span> <span class='id identifier rubyid_blank?'>blank?</span><span class='lparen'>(</span><span class='id identifier rubyid_right'>right</span><span class='rparen'>)</span>
+
+  <span class='id identifier rubyid_left_s'>left_s</span> <span class='op'>=</span> <span class='id identifier rubyid_left'>left</span><span class='period'>.</span><span class='id identifier rubyid_to_s'>to_s</span>
+  <span class='id identifier rubyid_right_s'>right_s</span> <span class='op'>=</span> <span class='id identifier rubyid_right'>right</span><span class='period'>.</span><span class='id identifier rubyid_to_s'>to_s</span>
+  <span class='const'>File</span><span class='period'>.</span><span class='id identifier rubyid_identical?'>identical?</span><span class='lparen'>(</span><span class='id identifier rubyid_left_s'>left_s</span><span class='comma'>,</span> <span class='id identifier rubyid_right_s'>right_s</span><span class='rparen'>)</span>
+<span class='kw'>rescue</span> <span class='const'>SystemCallError</span>
+  <span class='id identifier rubyid_left_s'>left_s</span> <span class='op'>==</span> <span class='id identifier rubyid_right_s'>right_s</span>
+<span class='kw'>end</span></pre>
+    </td>
+  </tr>
+</table>
+</div>
+    
+      <div class="method_details ">
+  <h3 class="signature " id="lexical_within?-class_method">
+  
+    .<strong>lexical_within?</strong>(candidate, boundary)  &#x21d2; <tt>Boolean</tt> 
+  
+
+  
+
+  
+</h3><div class="docstring">
+  <div class="discussion">
+    <p class="note private">
+  <strong>This method is part of a private API.</strong>
+  You should avoid using this method if possible, as it may be removed or be changed in the future.
+</p>
+<p>Lexical containment, used only when identity cannot be established because<br />
+one side does not exist. Component-wise rather than a string prefix, so a<br />
+sibling sharing a prefix is not reported as contained.</p>
+
+
+  </div>
+</div>
+<div class="tags">
+  
+<p class="tag_title">Returns:</p>
+<ul class="return">
+  
+    <li>
+      
+      
+        <span class='type'>(<tt>Boolean</tt>)</span>
+      
+      
+      
+    </li>
+  
+</ul>
+
+</div><table class="source_code">
+  <tr>
+    <td>
+      <pre class="lines">
+
+
+334
+335
+336
+337
+338
+339
+340
+341</pre>
+    </td>
+    <td>
+      <pre class="code"><span class="info file"># File 'lib/kettle/paths.rb', line 334</span>
+
+<span class='kw'>def</span> <span class='id identifier rubyid_lexical_within?'>lexical_within?</span><span class='lparen'>(</span><span class='id identifier rubyid_candidate'>candidate</span><span class='comma'>,</span> <span class='id identifier rubyid_boundary'>boundary</span><span class='rparen'>)</span>
+  <span class='id identifier rubyid_candidate_parts'>candidate_parts</span> <span class='op'>=</span> <span class='id identifier rubyid_comparable_parts'>comparable_parts</span><span class='lparen'>(</span><span class='id identifier rubyid_candidate'>candidate</span><span class='rparen'>)</span>
+  <span class='id identifier rubyid_boundary_parts'>boundary_parts</span> <span class='op'>=</span> <span class='id identifier rubyid_comparable_parts'>comparable_parts</span><span class='lparen'>(</span><span class='id identifier rubyid_boundary'>boundary</span><span class='rparen'>)</span>
+  <span class='id identifier rubyid_boundary_length'>boundary_length</span> <span class='op'>=</span> <span class='id identifier rubyid_boundary_parts'>boundary_parts</span><span class='period'>.</span><span class='id identifier rubyid_length'>length</span>
+  <span class='kw'>return</span> <span class='kw'>false</span> <span class='kw'>if</span> <span class='id identifier rubyid_candidate_parts'>candidate_parts</span><span class='period'>.</span><span class='id identifier rubyid_length'>length</span> <span class='op'>&lt;</span> <span class='id identifier rubyid_boundary_length'>boundary_length</span>
+
+  <span class='id identifier rubyid_candidate_parts'>candidate_parts</span><span class='lbracket'>[</span><span class='int'>0</span><span class='comma'>,</span> <span class='id identifier rubyid_boundary_length'>boundary_length</span><span class='rbracket'>]</span> <span class='op'>==</span> <span class='id identifier rubyid_boundary_parts'>boundary_parts</span>
+<span class='kw'>end</span></pre>
+    </td>
+  </tr>
+</table>
+</div>
+    
+      <div class="method_details ">
+  <h3 class="signature " id="local_path_remote?-class_method">
+  
+    .<strong>local_path_remote?</strong>(remote)  &#x21d2; <tt>Boolean</tt> 
+  
+
+  
+
+  
+</h3><div class="docstring">
+  <div class="discussion">
+    <p>True when a bundler/lockfile “remote:” value denotes a local path rather<br />
+than a registry URL.</p>
+
+
+  </div>
+</div>
+<div class="tags">
+  <p class="tag_title">Parameters:</p>
+<ul class="param">
+  
+    <li>
+      
+        <span class='name'>remote</span>
+      
+      
+        <span class='type'>(<tt>String</tt>, <tt>nil</tt>)</span>
+      
+      
+      
+    </li>
+  
+</ul>
+
+<p class="tag_title">Returns:</p>
+<ul class="return">
+  
+    <li>
+      
+      
+        <span class='type'>(<tt>Boolean</tt>)</span>
+      
+      
+      
+    </li>
+  
+</ul>
+
+</div><table class="source_code">
+  <tr>
+    <td>
+      <pre class="lines">
+
+
+281
+282
+283
+284
+285
+286
+287
+288
+289
+290
+291</pre>
+    </td>
+    <td>
+      <pre class="code"><span class="info file"># File 'lib/kettle/paths.rb', line 281</span>
+
+<span class='kw'>def</span> <span class='id identifier rubyid_local_path_remote?'>local_path_remote?</span><span class='lparen'>(</span><span class='id identifier rubyid_remote'>remote</span><span class='rparen'>)</span>
+  <span class='id identifier rubyid_text'>text</span> <span class='op'>=</span> <span class='id identifier rubyid_remote'>remote</span><span class='period'>.</span><span class='id identifier rubyid_to_s'>to_s</span>
+  <span class='kw'>return</span> <span class='kw'>false</span> <span class='kw'>if</span> <span class='id identifier rubyid_text'>text</span><span class='period'>.</span><span class='id identifier rubyid_empty?'>empty?</span>
+
+  <span class='comment'># Windows drive-absolute: &quot;C:/x&quot; or &quot;C:\x&quot;
+</span>  <span class='id identifier rubyid_third_char'>third_char</span> <span class='op'>=</span> <span class='id identifier rubyid_text'>text</span><span class='lbracket'>[</span><span class='int'>2</span><span class='rbracket'>]</span><span class='period'>.</span><span class='id identifier rubyid_to_s'>to_s</span>
+  <span class='id identifier rubyid_drive_absolute'>drive_absolute</span> <span class='op'>=</span> <span class='id identifier rubyid_text'>text</span><span class='period'>.</span><span class='id identifier rubyid_length'>length</span> <span class='op'>&gt;=</span> <span class='int'>3</span> <span class='op'>&amp;&amp;</span> <span class='id identifier rubyid_text'>text</span><span class='lbracket'>[</span><span class='int'>1</span><span class='rbracket'>]</span> <span class='op'>==</span> <span class='tstring'><span class='tstring_beg'>&quot;</span><span class='tstring_content'>:</span><span class='tstring_end'>&quot;</span></span> <span class='op'>&amp;&amp;</span> <span class='lparen'>(</span><span class='id identifier rubyid_third_char'>third_char</span> <span class='op'>==</span> <span class='tstring'><span class='tstring_beg'>&quot;</span><span class='tstring_content'>/</span><span class='tstring_end'>&quot;</span></span> <span class='op'>||</span> <span class='id identifier rubyid_third_char'>third_char</span> <span class='op'>==</span> <span class='tstring'><span class='tstring_beg'>&quot;</span><span class='tstring_content'>\\</span><span class='tstring_end'>&quot;</span></span><span class='rparen'>)</span>
+  <span class='id identifier rubyid_drive_absolute'>drive_absolute</span> <span class='op'>||</span>
+    <span class='const'><span class='object_link'><a href="#LOCAL_REMOTE_PREFIXES-constant" title="Kettle::Paths::LOCAL_REMOTE_PREFIXES (constant)">LOCAL_REMOTE_PREFIXES</a></span></span><span class='period'>.</span><span class='id identifier rubyid_any?'>any?</span> <span class='lbrace'>{</span> <span class='op'>|</span><span class='id identifier rubyid_prefix'>prefix</span><span class='op'>|</span> <span class='id identifier rubyid_text'>text</span><span class='period'>.</span><span class='id identifier rubyid_start_with?'>start_with?</span><span class='lparen'>(</span><span class='id identifier rubyid_prefix'>prefix</span><span class='rparen'>)</span> <span class='rbrace'>}</span> <span class='op'>||</span>
+    <span class='id identifier rubyid_absolute_pathname?'>absolute_pathname?</span><span class='lparen'>(</span><span class='id identifier rubyid_text'>text</span><span class='rparen'>)</span>
+<span class='kw'>end</span></pre>
+    </td>
+  </tr>
+</table>
+</div>
+    
+      <div class="method_details ">
+  <h3 class="signature " id="path_parts-class_method">
+  
+    .<strong>path_parts</strong>(path)  &#x21d2; <tt>Array&lt;String&gt;</tt> 
+  
+
+  
+
+  
+</h3><div class="docstring">
+  <div class="discussion">
+    <p>Splits a path into its components, normalizing backslashes so Windows and<br />
+POSIX paths compare alike.</p>
+
+
+  </div>
+</div>
+<div class="tags">
+  <p class="tag_title">Parameters:</p>
+<ul class="param">
+  
+    <li>
+      
+        <span class='name'>path</span>
+      
+      
+        <span class='type'>(<tt>String</tt>, <tt>Pathname</tt>, <tt>nil</tt>)</span>
+      
+      
+      
+    </li>
+  
+</ul>
+
+<p class="tag_title">Returns:</p>
+<ul class="return">
+  
+    <li>
+      
+      
+        <span class='type'>(<tt>Array&lt;String&gt;</tt>)</span>
+      
+      
+      
+    </li>
+  
+</ul>
+
+</div><table class="source_code">
+  <tr>
+    <td>
+      <pre class="lines">
+
+
+298
+299
+300</pre>
+    </td>
+    <td>
+      <pre class="code"><span class="info file"># File 'lib/kettle/paths.rb', line 298</span>
+
+<span class='kw'>def</span> <span class='id identifier rubyid_path_parts'>path_parts</span><span class='lparen'>(</span><span class='id identifier rubyid_path'>path</span><span class='rparen'>)</span>
+  <span class='id identifier rubyid_path'>path</span><span class='period'>.</span><span class='id identifier rubyid_to_s'>to_s</span><span class='period'>.</span><span class='id identifier rubyid_tr'>tr</span><span class='lparen'>(</span><span class='tstring'><span class='tstring_beg'>&quot;</span><span class='tstring_content'>\\</span><span class='tstring_end'>&quot;</span></span><span class='comma'>,</span> <span class='tstring'><span class='tstring_beg'>&quot;</span><span class='tstring_content'>/</span><span class='tstring_end'>&quot;</span></span><span class='rparen'>)</span><span class='period'>.</span><span class='id identifier rubyid_split'>split</span><span class='lparen'>(</span><span class='tstring'><span class='tstring_beg'>&quot;</span><span class='tstring_content'>/</span><span class='tstring_end'>&quot;</span></span><span class='rparen'>)</span><span class='period'>.</span><span class='id identifier rubyid_reject'>reject</span><span class='lparen'>(</span><span class='op'>&amp;</span><span class='symbol'>:empty?</span><span class='rparen'>)</span>
+<span class='kw'>end</span></pre>
+    </td>
+  </tr>
+</table>
+</div>
+    
+      <div class="method_details ">
+  <h3 class="signature " id="relative-class_method">
+  
+    .<strong>relative</strong>(path, root)  &#x21d2; <tt>String</tt><sup>?</sup> 
+  
+
+  
+
+  
+</h3><div class="docstring">
+  <div class="discussion">
+    <p>The path of +path+ relative to +root+, computed by ascending +path+ and<br />
+asking the filesystem at each level whether that ancestor is +root+.</p>
+
+<p>Returns nil when +root+ is not an ancestor of +path+. Callers must not<br />
+substitute a lexical result for that nil: +Pathname#relative_path_from+<br />
+returns a plausible but wrong +../../..+ escape in exactly that case, which<br />
+is worse than nil because it silently selects the wrong files or fails<br />
+later inside +git add+.</p>
+
+<p>The returned string is built from +path+’s own spelling, which is what<br />
+callers need when the result is stat’d or handed to a process spawned from<br />
+this working directory. For that reason the path is expanded WITHOUT<br />
++File.realpath+: a mid-path symlink must not be silently rewritten to its<br />
+target, because that changes which files a glob or a test runner sees.<br />
+Identity comparison via <span class='object_link'><a href="#identical%3F-class_method" title="Kettle::Paths.identical? (method)">identical?</a></span> already reconciles differing ancestor<br />
+spellings, so realpath buys nothing here and costs the caller’s spelling.<br />
+See the class documentation on +File.realpath+.</p>
+
+
+  </div>
+</div>
+<div class="tags">
+  <p class="tag_title">Parameters:</p>
+<ul class="param">
+  
+    <li>
+      
+        <span class='name'>path</span>
+      
+      
+        <span class='type'>(<tt>String</tt>, <tt>Pathname</tt>)</span>
+      
+      
+      
+    </li>
+  
+    <li>
+      
+        <span class='name'>root</span>
+      
+      
+        <span class='type'>(<tt>String</tt>, <tt>Pathname</tt>)</span>
+      
+      
+      
+    </li>
+  
+</ul>
+
+<p class="tag_title">Returns:</p>
+<ul class="return">
+  
+    <li>
+      
+      
+        <span class='type'>(<tt>String</tt>, <tt>nil</tt>)</span>
+      
+      
+      
+        &mdash;
+        <div class='inline'><p>relative path using forward slashes, “.” when the two<br />
+name the same directory, or nil when +root+ is not an ancestor</p>
+</div>
+      
+    </li>
+  
+</ul>
+
+</div><table class="source_code">
+  <tr>
+    <td>
+      <pre class="lines">
+
+
+243
+244
+245
+246
+247
+248
+249
+250
+251</pre>
+    </td>
+    <td>
+      <pre class="code"><span class="info file"># File 'lib/kettle/paths.rb', line 243</span>
+
+<span class='kw'>def</span> <span class='id identifier rubyid_relative'>relative</span><span class='lparen'>(</span><span class='id identifier rubyid_path'>path</span><span class='comma'>,</span> <span class='id identifier rubyid_root'><span class='object_link'><a href="../top-level-namespace.html" title="Top Level Namespace (root)">root</a></span></span><span class='rparen'>)</span>
+  <span class='kw'>return</span> <span class='kw'>nil</span> <span class='kw'>if</span> <span class='id identifier rubyid_blank?'>blank?</span><span class='lparen'>(</span><span class='id identifier rubyid_path'>path</span><span class='rparen'>)</span> <span class='op'>||</span> <span class='id identifier rubyid_blank?'>blank?</span><span class='lparen'>(</span><span class='id identifier rubyid_root'><span class='object_link'><a href="../top-level-namespace.html" title="Top Level Namespace (root)">root</a></span></span><span class='rparen'>)</span>
+
+  <span class='id identifier rubyid_candidate'>candidate</span> <span class='op'>=</span> <span class='const'>File</span><span class='period'>.</span><span class='id identifier rubyid_expand_path'>expand_path</span><span class='lparen'>(</span><span class='id identifier rubyid_path'>path</span><span class='period'>.</span><span class='id identifier rubyid_to_s'>to_s</span><span class='rparen'>)</span>
+  <span class='id identifier rubyid_boundary'>boundary</span> <span class='op'>=</span> <span class='const'>File</span><span class='period'>.</span><span class='id identifier rubyid_expand_path'>expand_path</span><span class='lparen'>(</span><span class='id identifier rubyid_root'><span class='object_link'><a href="../top-level-namespace.html" title="Top Level Namespace (root)">root</a></span></span><span class='period'>.</span><span class='id identifier rubyid_to_s'>to_s</span><span class='rparen'>)</span>
+  <span class='kw'>return</span> <span class='tstring'><span class='tstring_beg'>&quot;</span><span class='tstring_content'>.</span><span class='tstring_end'>&quot;</span></span> <span class='kw'>if</span> <span class='id identifier rubyid_identical?'>identical?</span><span class='lparen'>(</span><span class='id identifier rubyid_candidate'>candidate</span><span class='comma'>,</span> <span class='id identifier rubyid_boundary'>boundary</span><span class='rparen'>)</span>
+
+  <span class='id identifier rubyid_relative_parts'>relative_parts</span><span class='lparen'>(</span><span class='id identifier rubyid_candidate'>candidate</span><span class='comma'>,</span> <span class='id identifier rubyid_boundary'>boundary</span><span class='rparen'>)</span>
+<span class='kw'>end</span></pre>
+    </td>
+  </tr>
+</table>
+</div>
+    
+      <div class="method_details ">
+  <h3 class="signature " id="relative_from-class_method">
+  
+    .<strong>relative_from</strong>(path, root)  &#x21d2; <tt>String</tt> 
+  
+
+  
+
+  
+</h3><div class="docstring">
+  <div class="discussion">
+    <p>{relative}, falling back to the expanded +path+ when +root+ is not an<br />
+ancestor, i.e. when there is nothing to strip. This is the shape spec<br />
+discovery needs: it passes through paths outside the configuration root<br />
+untouched rather than producing a wrong relative path.</p>
+
+
+  </div>
+</div>
+<div class="tags">
+  <p class="tag_title">Parameters:</p>
+<ul class="param">
+  
+    <li>
+      
+        <span class='name'>path</span>
+      
+      
+        <span class='type'>(<tt>String</tt>, <tt>Pathname</tt>)</span>
+      
+      
+      
+    </li>
+  
+    <li>
+      
+        <span class='name'>root</span>
+      
+      
+        <span class='type'>(<tt>String</tt>, <tt>Pathname</tt>)</span>
+      
+      
+      
+    </li>
+  
+</ul>
+
+<p class="tag_title">Returns:</p>
+<ul class="return">
+  
+    <li>
+      
+      
+        <span class='type'>(<tt>String</tt>)</span>
+      
+      
+      
+        &mdash;
+        <div class='inline'><p>relative path, “.” for the same directory, or the expanded<br />
++path+ when it is not inside +root+</p>
+</div>
+      
+    </li>
+  
+</ul>
+
+</div><table class="source_code">
+  <tr>
+    <td>
+      <pre class="lines">
+
+
+262
+263
+264
+265</pre>
+    </td>
+    <td>
+      <pre class="code"><span class="info file"># File 'lib/kettle/paths.rb', line 262</span>
+
+<span class='kw'>def</span> <span class='id identifier rubyid_relative_from'>relative_from</span><span class='lparen'>(</span><span class='id identifier rubyid_path'>path</span><span class='comma'>,</span> <span class='id identifier rubyid_root'><span class='object_link'><a href="../top-level-namespace.html" title="Top Level Namespace (root)">root</a></span></span><span class='rparen'>)</span>
+  <span class='id identifier rubyid_expanded'>expanded</span> <span class='op'>=</span> <span class='const'>File</span><span class='period'>.</span><span class='id identifier rubyid_expand_path'>expand_path</span><span class='lparen'>(</span><span class='id identifier rubyid_path'>path</span><span class='period'>.</span><span class='id identifier rubyid_to_s'>to_s</span><span class='rparen'>)</span>
+  <span class='id identifier rubyid_relative'>relative</span><span class='lparen'>(</span><span class='id identifier rubyid_expanded'>expanded</span><span class='comma'>,</span> <span class='id identifier rubyid_root'><span class='object_link'><a href="../top-level-namespace.html" title="Top Level Namespace (root)">root</a></span></span><span class='rparen'>)</span> <span class='op'>||</span> <span class='id identifier rubyid_expanded'>expanded</span>
+<span class='kw'>end</span></pre>
+    </td>
+  </tr>
+</table>
+</div>
+    
+      <div class="method_details ">
+  <h3 class="signature " id="relative_parts-class_method">
+  
+    .<strong>relative_parts</strong>(candidate, boundary)  &#x21d2; <tt>String</tt><sup>?</sup> 
+  
+
+  
+
+  
+</h3><div class="docstring">
+  <div class="discussion">
+    <p class="note private">
+  <strong>This method is part of a private API.</strong>
+  You should avoid using this method if possible, as it may be removed or be changed in the future.
+</p>
+<p>Ascend from +candidate+ asking the filesystem whether each ancestor is<br />
++boundary+, re-joining basenames on the way back down.</p>
+
+<p>Recursion is avoided in favour of a loop: +File.dirname+ of the filesystem<br />
+root returns itself (“C:/” or “/”), so the +parent == current+ check ends<br />
+every walk without needing a depth constant. Depth is bounded by path<br />
+length and the cost is one stat pair per level.</p>
+
+<p>Both arguments are expected to be canonicalized already, by the public<br />
+entry points, so the loop compares with <span class='object_link'><a href="#identical%3F-class_method" title="Kettle::Paths.identical? (method)">identical?</a></span> rather than paying<br />
+for a fresh {canonical} per level.</p>
+
+
+  </div>
+</div>
+<div class="tags">
+  
+<p class="tag_title">Returns:</p>
+<ul class="return">
+  
+    <li>
+      
+      
+        <span class='type'>(<tt>String</tt>, <tt>nil</tt>)</span>
+      
+      
+      
+        &mdash;
+        <div class='inline'><p>relative path, “.” for the same directory, or nil<br />
+when the boundary was never reached</p>
+</div>
+      
+    </li>
+  
+</ul>
+
+</div><table class="source_code">
+  <tr>
+    <td>
+      <pre class="lines">
+
+
+358
+359
+360
+361
+362
+363
+364
+365
+366
+367
+368
+369
+370
+371
+372
+373
+374</pre>
+    </td>
+    <td>
+      <pre class="code"><span class="info file"># File 'lib/kettle/paths.rb', line 358</span>
+
+<span class='kw'>def</span> <span class='id identifier rubyid_relative_parts'>relative_parts</span><span class='lparen'>(</span><span class='id identifier rubyid_candidate'>candidate</span><span class='comma'>,</span> <span class='id identifier rubyid_boundary'>boundary</span><span class='rparen'>)</span>
+  <span class='id identifier rubyid_directory'>directory</span> <span class='op'>=</span> <span class='const'>File</span><span class='period'>.</span><span class='id identifier rubyid_directory?'>directory?</span><span class='lparen'>(</span><span class='id identifier rubyid_candidate'>candidate</span><span class='rparen'>)</span>
+  <span class='id identifier rubyid_current'>current</span> <span class='op'>=</span> <span class='id identifier rubyid_directory'>directory</span> <span class='op'>?</span> <span class='id identifier rubyid_candidate'>candidate</span> <span class='op'>:</span> <span class='const'>File</span><span class='period'>.</span><span class='id identifier rubyid_dirname'>dirname</span><span class='lparen'>(</span><span class='id identifier rubyid_candidate'>candidate</span><span class='rparen'>)</span>
+  <span class='id identifier rubyid_parts'>parts</span> <span class='op'>=</span> <span class='id identifier rubyid_directory'>directory</span> <span class='op'>?</span> <span class='lbracket'>[</span><span class='rbracket'>]</span> <span class='op'>:</span> <span class='lbracket'>[</span><span class='const'>File</span><span class='period'>.</span><span class='id identifier rubyid_basename'>basename</span><span class='lparen'>(</span><span class='id identifier rubyid_candidate'>candidate</span><span class='rparen'>)</span><span class='rbracket'>]</span>
+
+  <span class='kw'>until</span> <span class='id identifier rubyid_identical?'>identical?</span><span class='lparen'>(</span><span class='id identifier rubyid_current'>current</span><span class='comma'>,</span> <span class='id identifier rubyid_boundary'>boundary</span><span class='rparen'>)</span>
+    <span class='id identifier rubyid_parent'>parent</span> <span class='op'>=</span> <span class='const'>File</span><span class='period'>.</span><span class='id identifier rubyid_dirname'>dirname</span><span class='lparen'>(</span><span class='id identifier rubyid_current'>current</span><span class='rparen'>)</span>
+    <span class='kw'>return</span> <span class='kw'>nil</span> <span class='kw'>if</span> <span class='id identifier rubyid_parent'>parent</span> <span class='op'>==</span> <span class='id identifier rubyid_current'>current</span>
+
+    <span class='id identifier rubyid_parts'>parts</span><span class='period'>.</span><span class='id identifier rubyid_unshift'>unshift</span><span class='lparen'>(</span><span class='const'>File</span><span class='period'>.</span><span class='id identifier rubyid_basename'>basename</span><span class='lparen'>(</span><span class='id identifier rubyid_current'>current</span><span class='rparen'>)</span><span class='rparen'>)</span>
+    <span class='id identifier rubyid_current'>current</span> <span class='op'>=</span> <span class='id identifier rubyid_parent'>parent</span>
+  <span class='kw'>end</span>
+
+  <span class='kw'>return</span> <span class='tstring'><span class='tstring_beg'>&quot;</span><span class='tstring_content'>.</span><span class='tstring_end'>&quot;</span></span> <span class='kw'>if</span> <span class='id identifier rubyid_parts'>parts</span><span class='period'>.</span><span class='id identifier rubyid_empty?'>empty?</span>
+
+  <span class='const'>File</span><span class='period'>.</span><span class='id identifier rubyid_join'>join</span><span class='lparen'>(</span><span class='op'>*</span><span class='id identifier rubyid_parts'>parts</span><span class='rparen'>)</span><span class='period'>.</span><span class='id identifier rubyid_tr'>tr</span><span class='lparen'>(</span><span class='tstring'><span class='tstring_beg'>&quot;</span><span class='tstring_content'>\\</span><span class='tstring_end'>&quot;</span></span><span class='comma'>,</span> <span class='tstring'><span class='tstring_beg'>&quot;</span><span class='tstring_content'>/</span><span class='tstring_end'>&quot;</span></span><span class='rparen'>)</span>
+<span class='kw'>end</span></pre>
+    </td>
+  </tr>
+</table>
+</div>
+    
+      <div class="method_details ">
+  <h3 class="signature " id="same?-class_method">
+  
+    .<strong>same?</strong>(left, right, base: nil)  &#x21d2; <tt>Boolean</tt> 
+  
+
+  
+
+  
+</h3><div class="docstring">
+  <div class="discussion">
+    <p>True when +left+ and +right+ name the same filesystem object, compared by<br />
+identity rather than by spelling.</p>
+
+
+  </div>
+</div>
+<div class="tags">
+  <p class="tag_title">Parameters:</p>
+<ul class="param">
+  
+    <li>
+      
+        <span class='name'>left</span>
+      
+      
+        <span class='type'>(<tt>String</tt>, <tt>Pathname</tt>, <tt>nil</tt>)</span>
+      
+      
+      
+    </li>
+  
+    <li>
+      
+        <span class='name'>right</span>
+      
+      
+        <span class='type'>(<tt>String</tt>, <tt>Pathname</tt>, <tt>nil</tt>)</span>
+      
+      
+      
+    </li>
+  
+    <li>
+      
+        <span class='name'>base</span>
+      
+      
+        <span class='type'>(<tt>String</tt>, <tt>nil</tt>)</span>
+      
+      
+        <em class="default">(defaults to: <tt>nil</tt>)</em>
+      
+      
+        &mdash;
+        <div class='inline'><p>directory to expand relative arguments against</p>
+</div>
+      
+    </li>
+  
+</ul>
+
+<p class="tag_title">Returns:</p>
+<ul class="return">
+  
+    <li>
+      
+      
+        <span class='type'>(<tt>Boolean</tt>)</span>
+      
+      
+      
+        &mdash;
+        <div class='inline'><p>false when either argument is blank</p>
+</div>
+      
+    </li>
+  
+</ul>
+
+</div><table class="source_code">
+  <tr>
+    <td>
+      <pre class="lines">
+
+
+153
+154
+155
+156
+157
+158
+159
+160
+161
+162
+163
+164</pre>
+    </td>
+    <td>
+      <pre class="code"><span class="info file"># File 'lib/kettle/paths.rb', line 153</span>
+
+<span class='kw'>def</span> <span class='id identifier rubyid_same?'>same?</span><span class='lparen'>(</span><span class='id identifier rubyid_left'>left</span><span class='comma'>,</span> <span class='id identifier rubyid_right'>right</span><span class='comma'>,</span> <span class='label'>base:</span> <span class='kw'>nil</span><span class='rparen'>)</span>
+  <span class='kw'>return</span> <span class='kw'>false</span> <span class='kw'>if</span> <span class='id identifier rubyid_blank?'>blank?</span><span class='lparen'>(</span><span class='id identifier rubyid_left'>left</span><span class='rparen'>)</span> <span class='op'>||</span> <span class='id identifier rubyid_blank?'>blank?</span><span class='lparen'>(</span><span class='id identifier rubyid_right'>right</span><span class='rparen'>)</span>
+
+  <span class='id identifier rubyid_left_path'>left_path</span> <span class='op'>=</span> <span class='id identifier rubyid_canonical'>canonical</span><span class='lparen'>(</span><span class='id identifier rubyid_left'>left</span><span class='comma'>,</span> <span class='label'>base:</span> <span class='id identifier rubyid_base'>base</span><span class='rparen'>)</span>
+  <span class='id identifier rubyid_right_path'>right_path</span> <span class='op'>=</span> <span class='id identifier rubyid_canonical'>canonical</span><span class='lparen'>(</span><span class='id identifier rubyid_right'>right</span><span class='comma'>,</span> <span class='label'>base:</span> <span class='id identifier rubyid_base'>base</span><span class='rparen'>)</span>
+  <span class='kw'>return</span> <span class='kw'>false</span> <span class='kw'>if</span> <span class='id identifier rubyid_blank?'>blank?</span><span class='lparen'>(</span><span class='id identifier rubyid_left_path'>left_path</span><span class='rparen'>)</span> <span class='op'>||</span> <span class='id identifier rubyid_blank?'>blank?</span><span class='lparen'>(</span><span class='id identifier rubyid_right_path'>right_path</span><span class='rparen'>)</span>
+  <span class='kw'>return</span> <span class='kw'>true</span> <span class='kw'>if</span> <span class='id identifier rubyid_left_path'>left_path</span> <span class='op'>==</span> <span class='id identifier rubyid_right_path'>right_path</span>
+
+  <span class='id identifier rubyid_identical?'>identical?</span><span class='lparen'>(</span><span class='id identifier rubyid_left_path'>left_path</span><span class='comma'>,</span> <span class='id identifier rubyid_right_path'>right_path</span><span class='rparen'>)</span> <span class='op'>||</span> <span class='id identifier rubyid_comparable_parts'>comparable_parts</span><span class='lparen'>(</span><span class='id identifier rubyid_left_path'>left_path</span><span class='rparen'>)</span> <span class='op'>==</span> <span class='id identifier rubyid_comparable_parts'>comparable_parts</span><span class='lparen'>(</span><span class='id identifier rubyid_right_path'>right_path</span><span class='rparen'>)</span>
+<span class='kw'>rescue</span> <span class='const'>Errno</span><span class='op'>::</span><span class='const'>EACCES</span><span class='comma'>,</span> <span class='const'>Errno</span><span class='op'>::</span><span class='const'>ENOENT</span><span class='comma'>,</span> <span class='const'>Errno</span><span class='op'>::</span><span class='const'>ENOTDIR</span><span class='comma'>,</span> <span class='const'>NotImplementedError</span>
+  <span class='id identifier rubyid_comparable_parts'>comparable_parts</span><span class='lparen'>(</span><span class='id identifier rubyid_left_path'>left_path</span> <span class='op'>||</span> <span class='id identifier rubyid_left'>left</span><span class='period'>.</span><span class='id identifier rubyid_to_s'>to_s</span><span class='rparen'>)</span> <span class='op'>==</span> <span class='id identifier rubyid_comparable_parts'>comparable_parts</span><span class='lparen'>(</span><span class='id identifier rubyid_right_path'>right_path</span> <span class='op'>||</span> <span class='id identifier rubyid_right'>right</span><span class='period'>.</span><span class='id identifier rubyid_to_s'>to_s</span><span class='rparen'>)</span>
+<span class='kw'>end</span></pre>
+    </td>
+  </tr>
+</table>
+</div>
+    
+      <div class="method_details ">
+  <h3 class="signature " id="windows?-class_method">
+  
+    .<strong>windows?</strong>  &#x21d2; <tt>Boolean</tt> 
+  
+
+  
+
+  
+</h3><div class="docstring">
+  <div class="discussion">
+    <p class="note private">
+  <strong>This method is part of a private API.</strong>
+  You should avoid using this method if possible, as it may be removed or be changed in the future.
+</p>
+
+
+
+  </div>
+</div>
+<div class="tags">
+  
+<p class="tag_title">Returns:</p>
+<ul class="return">
+  
+    <li>
+      
+      
+        <span class='type'>(<tt>Boolean</tt>)</span>
+      
+      
+      
+    </li>
+  
+</ul>
+
+</div><table class="source_code">
+  <tr>
+    <td>
+      <pre class="lines">
+
+
+313
+314
+315</pre>
+    </td>
+    <td>
+      <pre class="code"><span class="info file"># File 'lib/kettle/paths.rb', line 313</span>
+
+<span class='kw'>def</span> <span class='id identifier rubyid_windows?'>windows?</span>
+  <span class='const'>Gem</span><span class='period'>.</span><span class='id identifier rubyid_win_platform?'>win_platform?</span>
+<span class='kw'>end</span></pre>
+    </td>
+  </tr>
+</table>
+</div>
+    
+      <div class="method_details ">
+  <h3 class="signature " id="within?-class_method">
+  
+    .<strong>within?</strong>(path, root, base: nil)  &#x21d2; <tt>Boolean</tt> 
+  
+
+  
+
+  
+</h3><div class="docstring">
+  <div class="discussion">
+    <p>True when +path+ is +root+ itself or lives inside it, compared by<br />
+filesystem identity.</p>
+
+<p>Unlike a string prefix test this does not treat a sibling directory that<br />
+merely shares a prefix (“project-other” vs “project”) as being inside<br />
+“project”. Unlike lexical component comparison it survives a symlinked<br />
+ancestor and Windows 8.3 short names.</p>
+
+<p>When identity cannot be established, because one side does not exist, this<br />
+falls back to lexical component comparison. That is what keeps it usable<br />
+for generated output paths that have not been written yet.</p>
+
+
+  </div>
+</div>
+<div class="tags">
+  <p class="tag_title">Parameters:</p>
+<ul class="param">
+  
+    <li>
+      
+        <span class='name'>path</span>
+      
+      
+        <span class='type'>(<tt>String</tt>, <tt>Pathname</tt>, <tt>nil</tt>)</span>
+      
+      
+      
+    </li>
+  
+    <li>
+      
+        <span class='name'>root</span>
+      
+      
+        <span class='type'>(<tt>String</tt>, <tt>Pathname</tt>, <tt>nil</tt>)</span>
+      
+      
+      
+    </li>
+  
+    <li>
+      
+        <span class='name'>base</span>
+      
+      
+        <span class='type'>(<tt>String</tt>, <tt>nil</tt>)</span>
+      
+      
+        <em class="default">(defaults to: <tt>nil</tt>)</em>
+      
+      
+    </li>
+  
+</ul>
+
+<p class="tag_title">Returns:</p>
+<ul class="return">
+  
+    <li>
+      
+      
+        <span class='type'>(<tt>Boolean</tt>)</span>
+      
+      
+      
+        &mdash;
+        <div class='inline'><p>false when either argument is blank</p>
+</div>
+      
+    </li>
+  
+</ul>
+
+</div><table class="source_code">
+  <tr>
+    <td>
+      <pre class="lines">
+
+
+209
+210
+211
+212
+213
+214
+215
+216
+217
+218
+219</pre>
+    </td>
+    <td>
+      <pre class="code"><span class="info file"># File 'lib/kettle/paths.rb', line 209</span>
+
+<span class='kw'>def</span> <span class='id identifier rubyid_within?'>within?</span><span class='lparen'>(</span><span class='id identifier rubyid_path'>path</span><span class='comma'>,</span> <span class='id identifier rubyid_root'><span class='object_link'><a href="../top-level-namespace.html" title="Top Level Namespace (root)">root</a></span></span><span class='comma'>,</span> <span class='label'>base:</span> <span class='kw'>nil</span><span class='rparen'>)</span>
+  <span class='kw'>return</span> <span class='kw'>false</span> <span class='kw'>if</span> <span class='id identifier rubyid_blank?'>blank?</span><span class='lparen'>(</span><span class='id identifier rubyid_path'>path</span><span class='rparen'>)</span> <span class='op'>||</span> <span class='id identifier rubyid_blank?'>blank?</span><span class='lparen'>(</span><span class='id identifier rubyid_root'><span class='object_link'><a href="../top-level-namespace.html" title="Top Level Namespace (root)">root</a></span></span><span class='rparen'>)</span>
+
+  <span class='id identifier rubyid_candidate'>candidate</span> <span class='op'>=</span> <span class='const'>File</span><span class='period'>.</span><span class='id identifier rubyid_expand_path'>expand_path</span><span class='lparen'>(</span><span class='id identifier rubyid_path'>path</span><span class='period'>.</span><span class='id identifier rubyid_to_s'>to_s</span><span class='comma'>,</span> <span class='id identifier rubyid_base'>base</span><span class='rparen'>)</span>
+  <span class='id identifier rubyid_boundary'>boundary</span> <span class='op'>=</span> <span class='const'>File</span><span class='period'>.</span><span class='id identifier rubyid_expand_path'>expand_path</span><span class='lparen'>(</span><span class='id identifier rubyid_root'><span class='object_link'><a href="../top-level-namespace.html" title="Top Level Namespace (root)">root</a></span></span><span class='period'>.</span><span class='id identifier rubyid_to_s'>to_s</span><span class='comma'>,</span> <span class='id identifier rubyid_base'>base</span><span class='rparen'>)</span>
+  <span class='kw'>return</span> <span class='kw'>true</span> <span class='kw'>if</span> <span class='id identifier rubyid_identical?'>identical?</span><span class='lparen'>(</span><span class='id identifier rubyid_candidate'>candidate</span><span class='comma'>,</span> <span class='id identifier rubyid_boundary'>boundary</span><span class='rparen'>)</span>
+
+  <span class='op'>!</span><span class='id identifier rubyid_relative_parts'>relative_parts</span><span class='lparen'>(</span><span class='id identifier rubyid_candidate'>candidate</span><span class='comma'>,</span> <span class='id identifier rubyid_boundary'>boundary</span><span class='rparen'>)</span><span class='period'>.</span><span class='id identifier rubyid_nil?'>nil?</span> <span class='op'>||</span> <span class='id identifier rubyid_lexical_within?'>lexical_within?</span><span class='lparen'>(</span><span class='id identifier rubyid_candidate'>candidate</span><span class='comma'>,</span> <span class='id identifier rubyid_boundary'>boundary</span><span class='rparen'>)</span>
+<span class='kw'>rescue</span> <span class='const'>Errno</span><span class='op'>::</span><span class='const'>EACCES</span><span class='comma'>,</span> <span class='const'>Errno</span><span class='op'>::</span><span class='const'>ENOENT</span><span class='comma'>,</span> <span class='const'>Errno</span><span class='op'>::</span><span class='const'>ENOTDIR</span>
+  <span class='kw'>false</span>
+<span class='kw'>end</span></pre>
+    </td>
+  </tr>
+</table>
+</div>
+    
+  </div>
+
+</div>
+
+      <div id="footer">
+  Generated on Sat Oct 10 17:45:44 2026 by
+  <a href="https://yardoc.org" title="Yay! A Ruby Documentation Tool" target="_parent">yard</a>
+  0.9.45 (ruby-4.0.7).
+</div>
+
+    </div>
+  </body>
+</html>

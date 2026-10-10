@@ -20,6 +20,25 @@ Please file a bug if you notice a violation of semantic versioning.
 
 ### Added
 
+### Changed
+
+### Deprecated
+
+### Removed
+
+### Fixed
+
+### Security
+
+## [0.1.0] - 2026-10-10
+
+- TAG: [v0.1.0][0.1.0t]
+- COVERAGE: 95.79% -- 91/95 lines in 2 files
+- BRANCH COVERAGE: 86.11% -- 31/36 branches in 2 files
+- 90.91% documented
+
+### Added
+
 - kettle-jem-template-20260720-005 - README Support & Community links now
   include RubyForum.
 - kettle-jem-template-20260726-001 - Projects now include YARD lint
@@ -64,10 +83,6 @@ Please file a bug if you notice a violation of semantic versioning.
 - [kc] kettle-jem/prepare: updated 5 project files:
   - dependencies (5)
 
-### Deprecated
-
-### Removed
-
 ### Fixed
 
 - kettle-jem-template-20260720-003 - StructuredMerge Git diff driver config now
@@ -110,4 +125,6 @@ Please file a bug if you notice a violation of semantic versioning.
   legacy manual bundle install path, avoiding setup-time Bundler full-index
   failures against `gem.coop`.
 
-### Security
+[Unreleased]: https://github.com/pboling/kettle-paths/compare/v0.1.0...HEAD
+[0.1.0]: https://github.com/pboling/kettle-paths/compare/273d282a2165fff8d910df95fba8dedec87ff154...v0.1.0
+[0.1.0t]: https://github.com/pboling/kettle-paths/releases/tag/v0.1.0
