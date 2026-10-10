@@ -270,7 +270,14 @@ module Kettle
     # @param parts [Array<String>] joined with +File::SEPARATOR+ before globbing
     # @return [Array<String>]
     def glob(*parts)
-      Dir.glob(File.join(*parts).tr("\\", "/"))
+      # Windows short names (RUNNER~1) hide that two spellings are one file.
+      # Expanding the base directory first makes results use the same real
+      # spelling as the caller's expectation, so comparisons do not depend on
+      # how TMPDIR happened to be written.
+      base = File.expand_path(File.join(*parts))
+      base_dir = File.dirname(base)
+      base_dir = File.expand_path(base_dir)
+      Dir.glob(File.join(base_dir, File.basename(base)).tr("\\", "/"))
     end
 
     # True when a bundler/lockfile "remote:" value denotes a local path rather

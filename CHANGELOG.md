@@ -28,6 +28,8 @@ Please file a bug if you notice a violation of semantic versioning.
 
 ### Fixed
 
+- glob on Windows: expand the base directory so results use the same real path spelling as the caller. With Windows 8.3 short names a caller holding C:/Users/runneradmin/... while TMPDIR reports C:/Users/RUNNER~1/... got results in the other spelling and comparisons failed (observed on windows-latest CI).
+
 ### Security
 
 ## [0.1.0] - 2026-10-10
