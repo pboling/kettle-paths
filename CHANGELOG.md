@@ -28,15 +28,13 @@ Please file a bug if you notice a violation of semantic versioning.
 
 ### Fixed
 
-- glob on Windows: compare glob results and the base in expanded space to compute the relative path, then re-prefix with the caller's spelling. File.expand_path does not resolve 8.3 short names (RUNNER~1), so the first attempt still compared a short-named prefix against long-named results and the re-prefix never engaged (observed on windows-latest CI run 38096229120).
-
 ### Security
 
 ## [0.1.0] - 2026-10-10
 
 - TAG: [v0.1.0][0.1.0t]
-- COVERAGE: 95.19% -- 99/104 lines in 2 files
-- BRANCH COVERAGE: 80.95% -- 34/42 branches in 2 files
+- COVERAGE: 96.15% -- 100/104 lines in 2 files
+- BRANCH COVERAGE: 82.50% -- 33/40 branches in 2 files
 - 90.91% documented
 
 ### Added
