@@ -22,6 +22,10 @@ Please file a bug if you notice a violation of semantic versioning.
 
 ### Changed
 
+- [kc] kettle-jem/template: updated 2 project files:
+  - dependencies (1)
+  - documentation (1)
+
 ### Deprecated
 
 ### Removed

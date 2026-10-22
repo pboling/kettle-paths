@@ -2,43 +2,14 @@
 version: 1
 template_state:
   version: 7.1.30
-  applied_at: '2026-10-15'
+  applied_at: '2026-10-22'
   changelog_replay:
     last_entry_key: kettle-jem-template-20260913-001
     last_entry_date: '2026-09-13'
   maintenance_changelog:
     kettle-jem/template:
-    - ".github/workflows/coverage.yml"
-    - ".github/workflows/current.yml"
-    - ".github/workflows/dep-heads.yml"
-    - ".github/workflows/heads.yml"
-    - ".github/workflows/jruby-10.0.yml"
-    - ".github/workflows/jruby-9.2.yml"
-    - ".github/workflows/jruby-9.3.yml"
-    - ".github/workflows/jruby-9.4.yml"
-    - ".github/workflows/jruby.yml"
-    - ".github/workflows/locked_deps.yml"
-    - ".github/workflows/ruby-2.4.yml"
-    - ".github/workflows/ruby-2.5.yml"
-    - ".github/workflows/ruby-2.6.yml"
-    - ".github/workflows/ruby-2.7.yml"
-    - ".github/workflows/ruby-3.0.yml"
-    - ".github/workflows/ruby-3.1.yml"
-    - ".github/workflows/ruby-3.2.yml"
-    - ".github/workflows/ruby-3.3.yml"
-    - ".github/workflows/ruby-3.4.yml"
-    - ".github/workflows/style.yml"
-    - ".github/workflows/templating.yml"
-    - ".github/workflows/truffle.yml"
-    - ".github/workflows/truffleruby-22.3.yml"
-    - ".github/workflows/truffleruby-23.0.yml"
-    - ".github/workflows/truffleruby-23.1.yml"
-    - ".github/workflows/truffleruby-24.2.yml"
-    - ".github/workflows/truffleruby-25.0.yml"
-    - ".github/workflows/truffleruby-33.0.yml"
-    - ".github/workflows/unlocked_deps.yml"
-    - ".simplecov"
     - README.md
+    - kettle-paths.gemspec
     kettle-jem/prepare:
     - ".structuredmerge/kettle-jem.yml"
     - Gemfile
@@ -762,8 +733,8 @@ files:
   README.md:
     recipe: template_source_application_README_md
     action: write
-    dest_sha256: 6f1bb90e07ee8e2634813dc4b9391652e6af85c3dce37c3fd712a65afd5968ec
-    input_fingerprint: 7e3664fe18eac83434bc2eb0219dd4dc836dd66aca6861f708a75ad41728d5cd
+    dest_sha256: 7c072636a0bcd9ebcc203eb1ae1cde5d7355429c54ee8512ddb22944edfec260
+    input_fingerprint: f089f7ee78708b0d503b3cdcf7955728996a7382d193e86b07fd64f4a46c092e
     template_sources:
     - README.md.example
   REEK:
@@ -1147,8 +1118,8 @@ files:
   kettle-paths.gemspec:
     recipe: template_source_application_kettle_paths_gemspec
     action: write
-    dest_sha256: 7b58a5be37496e6799aedd0e0d68487d240e47a504a56733b618d43f0b3e09f1
-    input_fingerprint: f3153635649c8f4f940221ece7e767f3920e0a3931328307daacb9a114d7ff4e
+    dest_sha256: b65e89b62388ff7c89d912c849e1dcefaa50816b7cb23c102f34d8a6b54e0f71
+    input_fingerprint: 2d455ea8ecc77e058818bf596ca323f541af82023e10c5f13e748589bb1bc799
     template_sources:
     - gem.gemspec.example
   lib/kettle/paths/version.rb:

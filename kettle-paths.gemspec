@@ -23,7 +23,7 @@ Gem::Specification.new do |spec|
   spec.authors = ["Peter H. Boling"]
   spec.email = ["floss@galtzo.com"]
 
-  spec.summary = "💎 Filesystem path comparison by identity, not by spelling."
+  spec.summary = "🛤️ Filesystem path comparison by identity, not by spelling."
   spec.description = <<~DESC.strip
     Path helpers that compare two filesystem paths by identity (inode / file
     index) rather than by string, so a directory spelled two valid ways still
@@ -68,7 +68,7 @@ Gem::Specification.new do |spec|
   gemspec_root = __dir__
   relative_package_path = lambda do |path|
     prefix = "#{gemspec_root}/"
-    (path[0, prefix.length] == prefix) ? path[prefix.length..-1] : path
+    path[0, prefix.length] == prefix ? path[prefix.length..-1] : path
   end
   enumerate_package_glob = lambda do |glob|
     files = []
