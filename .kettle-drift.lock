@@ -1,10 +1,28 @@
 {
+  "- [kc] kettle-jem/prepare: updated 8 project files:\n- configuration (1)": [
+    {
+      "file": "CHANGELOG.md",
+      "lines": [
+        25,
+        99
+      ]
+    }
+  ],
+  "- configuration (1)\n- dependencies (7)": [
+    {
+      "file": "CHANGELOG.md",
+      "lines": [
+        26,
+        100
+      ]
+    }
+  ],
   "- documentation (1)\n- other (1)": [
     {
       "file": "CHANGELOG.md",
       "lines": [
-        54,
-        85
+        73,
+        104
       ]
     }
   ],
